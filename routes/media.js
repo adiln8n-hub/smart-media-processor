@@ -20,6 +20,46 @@ if (!fs.existsSync(TEMP_DIR)) {
   fs.mkdirSync(TEMP_DIR, { recursive: true });
 }
 
+// ─── Debug Endpoint ────────────────────────────────────────────────────────
+router.get('/debug', async (req, res) => {
+  const { exec } = require('child_process');
+  const util = require('util');
+  const execPromise = util.promisify(exec);
+  
+  const results = {
+    node: process.version,
+    platform: process.platform,
+    env: process.env.NODE_ENV,
+    ffmpeg: 'unknown',
+    ytdlp: 'unknown',
+    python: 'unknown'
+  };
+  
+  try {
+    const { stdout } = await execPromise('ffmpeg -version');
+    results.ffmpeg = stdout.split('\n')[0];
+  } catch (e) { results.ffmpeg = 'Error: ' + e.message; }
+  
+  try {
+    const { stdout } = await execPromise('yt-dlp --version');
+    results.ytdlp = stdout.trim();
+  } catch (e) {
+    try {
+      const { stdout } = await execPromise('python3 -m yt_dlp --version');
+      results.ytdlp = 'via python3: ' + stdout.trim();
+    } catch (e2) {
+      results.ytdlp = 'Error: ' + e.message + ' | Fallback error: ' + e2.message;
+    }
+  }
+  
+  try {
+    const { stdout } = await execPromise('python3 --version');
+    results.python = stdout.trim();
+  } catch (e) { results.python = 'Error: ' + e.message; }
+  
+  res.json(results);
+});
+
 // ─── Analyze URL ────────────────────────────────────────────────────────────
 router.post('/analyze', async (req, res) => {
   const { url } = req.body;
@@ -318,46 +358,6 @@ router.get('/download/:jobId', (req, res) => {
     console.error('Stream error:', err.message);
     res.end();
   });
-});
-
-// ─── Debug Endpoint ────────────────────────────────────────────────────────
-router.get('/debug', async (req, res) => {
-  const { exec } = require('child_process');
-  const util = require('util');
-  const execPromise = util.promisify(exec);
-  
-  const results = {
-    node: process.version,
-    platform: process.platform,
-    env: process.env.NODE_ENV,
-    ffmpeg: 'unknown',
-    ytdlp: 'unknown',
-    python: 'unknown'
-  };
-  
-  try {
-    const { stdout } = await execPromise('ffmpeg -version');
-    results.ffmpeg = stdout.split('\n')[0];
-  } catch (e) { results.ffmpeg = 'Error: ' + e.message; }
-  
-  try {
-    const { stdout } = await execPromise('yt-dlp --version');
-    results.ytdlp = stdout.trim();
-  } catch (e) {
-    try {
-      const { stdout } = await execPromise('python3 -m yt_dlp --version');
-      results.ytdlp = 'via python3: ' + stdout.trim();
-    } catch (e2) {
-      results.ytdlp = 'Error: ' + e.message + ' | Fallback error: ' + e2.message;
-    }
-  }
-  
-  try {
-    const { stdout } = await execPromise('python3 --version');
-    results.python = stdout.trim();
-  } catch (e) { results.python = 'Error: ' + e.message; }
-  
-  res.json(results);
 });
 
 module.exports = router;

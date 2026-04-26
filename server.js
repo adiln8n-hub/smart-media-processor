@@ -9,6 +9,12 @@ const mediaRoutes = require('./routes/media');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Request logging
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  next();
+});
+
 // Create temp directory for processing
 const TEMP_DIR = path.join(os.tmpdir(), 'smart-media-processor');
 if (!fs.existsSync(TEMP_DIR)) {
