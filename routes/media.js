@@ -11,6 +11,7 @@ const { jobs, createJob, updateJob, getJob } = require('../jobs');
 const { downloadFile } = require('../processors/downloader');
 const { processVideo } = require('../processors/videoProcessor');
 const { processImage } = require('../processors/imageProcessor');
+const ytdl = require('yt-dlp-exec');
 
 const TEMP_DIR = path.join(os.tmpdir(), 'smart-media-processor');
 
@@ -55,16 +56,38 @@ router.post('/analyze', async (req, res) => {
       filename = path.basename(url.split('?')[0]) || 'file';
     }
 
-    // Classify type
     const ct = contentType.split(';')[0].trim().toLowerCase();
     let type = 'unknown';
     if (ct.startsWith('video/')) type = 'video';
     else if (ct.startsWith('audio/')) type = 'audio';
     else if (ct.startsWith('image/')) type = 'image';
 
-    const ext = mime.extension(ct) || path.extname(filename).replace('.', '') || 'bin';
+    let ext = mime.extension(ct) || path.extname(filename).replace('.', '') || 'bin';
+    let previewUrl = url;
 
-    return res.json({ type, ext, filename, contentType: ct, previewUrl: url });
+    // ─── Fallback to yt-dlp for streaming sites ─────────────────────────────
+    if (type === 'unknown' || ct.includes('text/html')) {
+      try {
+        const metadata = await ytdl(url, {
+          dumpSingleJson: true,
+          noWarnings: true,
+          noCheckCertificates: true,
+          preferFreeFormats: true,
+          addHeader: ['User-Agent:Mozilla/5.0'],
+        });
+
+        if (metadata) {
+          type = metadata.vcodec !== 'none' ? 'video' : (metadata.acodec !== 'none' ? 'audio' : 'unknown');
+          filename = metadata.title || filename;
+          ext = metadata.ext || ext;
+          previewUrl = metadata.url || url; // Use direct stream URL for preview if available
+        }
+      } catch (ytdlErr) {
+        console.log('yt-dlp analysis skipped or failed:', ytdlErr.message);
+      }
+    }
+
+    return res.json({ type, ext, filename, contentType: ct, previewUrl });
   } catch (error) {
     console.error('Analyze error:', error.message);
     return res.status(500).json({ error: `Failed to analyze URL: ${error.message}` });

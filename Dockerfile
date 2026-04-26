@@ -2,7 +2,8 @@ FROM node:20-slim
 
 # Install ffmpeg system package for reliable processing
 RUN apt-get update && \
-    apt-get install -y ffmpeg python3 make g++ && \
+    apt-get install -y ffmpeg python3 python3-pip make g++ && \
+    pip3 install yt-dlp && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
