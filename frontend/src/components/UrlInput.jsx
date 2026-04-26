@@ -69,7 +69,7 @@ export default function UrlInput({ onAnalyze, isLoading, locked, onReset, curren
         </button>
       </form>
       <p className="mt-2.5 text-xs text-slate-500">
-        Supported: <span className="text-slate-400">.mp4 .mkv .mov .avi — .mp3 .wav .ogg — .jpg .png .webp .gif</span>
+        Supported: <span className="text-slate-400">MP4, YouTube, xHamster, MP3, JPG &amp; 1000+ sites</span>
       </p>
     </div>
   );

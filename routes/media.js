@@ -68,22 +68,60 @@ router.post('/analyze', async (req, res) => {
     // ─── Fallback to yt-dlp for streaming sites ─────────────────────────────
     if (type === 'unknown' || ct.includes('text/html')) {
       try {
-        const metadata = await ytdl(url, {
+        const ytdlPromise = ytdl(url, {
           dumpSingleJson: true,
           noWarnings: true,
           noCheckCertificates: true,
           preferFreeFormats: true,
-          addHeader: ['User-Agent:Mozilla/5.0'],
+          userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          referer: url,
+          noPlaylist: true,
+          addHeader: [
+            'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language:en-US,en;q=0.9',
+          ]
         });
+
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Analysis timed out')), 45000)
+        );
+
+        const metadata = await Promise.race([ytdlPromise, timeoutPromise]);
 
         if (metadata) {
           type = metadata.vcodec !== 'none' ? 'video' : (metadata.acodec !== 'none' ? 'audio' : 'unknown');
           filename = metadata.title || filename;
           ext = metadata.ext || ext;
-          previewUrl = metadata.url || url; // Use direct stream URL for preview if available
+          previewUrl = metadata.url || url;
         }
       } catch (ytdlErr) {
-        console.log('yt-dlp analysis skipped or failed:', ytdlErr.message);
+        console.log('yt-dlp analysis failed or timed out:', ytdlErr.message);
+        
+        // ─── Manual Fallback for xHamster Mirrors ─────────────────────────────
+        if (url.includes('xhhouse') || url.includes('xhamster')) {
+          try {
+            const htmlRes = await axios.get(url, {
+              headers: { 
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Referer': url 
+              }
+            });
+            const titleMatch = htmlRes.data.match(/"title":"(.*?)"/);
+            if (titleMatch) filename = titleMatch[1];
+            
+            const thumbMatch = htmlRes.data.match(/"thumbURL":"(.*?)"/);
+            if (thumbMatch) previewUrl = thumbMatch[1].replace(/\\/g, '');
+
+            const trailerMatch = htmlRes.data.match(/"trailerURL":"(.*?)"/);
+            if (trailerMatch) {
+              previewUrl = trailerMatch[1].replace(/\\/g, ''); // Fallback to trailer for preview
+              type = 'video';
+              ext = 'mp4';
+            }
+          } catch (e) {
+            console.log('Manual fallback failed:', e.message);
+          }
+        }
       }
     }
 
