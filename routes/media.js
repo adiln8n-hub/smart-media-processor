@@ -93,6 +93,25 @@ router.post('/analyze', async (req, res) => {
             child.kill();
             reject(new Error('yt-dlp timed out after 45s'));
           }, 45000);
+
+          child.on('error', (err) => {
+            clearTimeout(timeout);
+            if (err.code === 'ENOENT') {
+              // Try fallback to python3 -m yt_dlp
+              const fallbackChild = spawn('python3', ['-m', 'yt_dlp', ...args]);
+              let fStdout = '';
+              let fStderr = '';
+              fallbackChild.stdout.on('data', (d) => fStdout += d.toString());
+              fallbackChild.stderr.on('data', (d) => fStderr += d.toString());
+              fallbackChild.on('close', (c) => {
+                if (c === 0) resolve(JSON.parse(fStdout));
+                else reject(new Error(`yt-dlp fallback failed: ${fStderr}`));
+              });
+              fallbackChild.on('error', (e) => reject(new Error(`yt-dlp and fallback both failed: ${err.message} / ${e.message}`)));
+            } else {
+              reject(err);
+            }
+          });
           
           child.on('close', (code) => {
             clearTimeout(timeout);
@@ -299,6 +318,46 @@ router.get('/download/:jobId', (req, res) => {
     console.error('Stream error:', err.message);
     res.end();
   });
+});
+
+// ─── Debug Endpoint ────────────────────────────────────────────────────────
+router.get('/debug', async (req, res) => {
+  const { exec } = require('child_process');
+  const util = require('util');
+  const execPromise = util.promisify(exec);
+  
+  const results = {
+    node: process.version,
+    platform: process.platform,
+    env: process.env.NODE_ENV,
+    ffmpeg: 'unknown',
+    ytdlp: 'unknown',
+    python: 'unknown'
+  };
+  
+  try {
+    const { stdout } = await execPromise('ffmpeg -version');
+    results.ffmpeg = stdout.split('\n')[0];
+  } catch (e) { results.ffmpeg = 'Error: ' + e.message; }
+  
+  try {
+    const { stdout } = await execPromise('yt-dlp --version');
+    results.ytdlp = stdout.trim();
+  } catch (e) {
+    try {
+      const { stdout } = await execPromise('python3 -m yt_dlp --version');
+      results.ytdlp = 'via python3: ' + stdout.trim();
+    } catch (e2) {
+      results.ytdlp = 'Error: ' + e.message + ' | Fallback error: ' + e2.message;
+    }
+  }
+  
+  try {
+    const { stdout } = await execPromise('python3 --version');
+    results.python = stdout.trim();
+  } catch (e) { results.python = 'Error: ' + e.message; }
+  
+  res.json(results);
 });
 
 module.exports = router;
