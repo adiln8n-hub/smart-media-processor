@@ -11,8 +11,17 @@ const PORT = process.env.PORT || 5000;
 
 // Request logging
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
   next();
+});
+
+// Simple health check
+app.get('/test', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    time: new Date().toISOString(),
+    uptime: process.uptime()
+  });
 });
 
 // Create temp directory for processing
