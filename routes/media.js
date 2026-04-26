@@ -11,7 +11,7 @@ const { jobs, createJob, updateJob, getJob } = require('../jobs');
 const { downloadFile } = require('../processors/downloader');
 const { processVideo } = require('../processors/videoProcessor');
 const { processImage } = require('../processors/imageProcessor');
-const ytdl = require('yt-dlp-exec');
+const { spawn } = require('child_process');
 
 const TEMP_DIR = path.join(os.tmpdir(), 'smart-media-processor');
 
@@ -68,36 +68,57 @@ router.post('/analyze', async (req, res) => {
     // ─── Fallback to yt-dlp for streaming sites ─────────────────────────────
     if (type === 'unknown' || ct.includes('text/html')) {
       try {
-        const ytdlPromise = ytdl(url, {
-          dumpSingleJson: true,
-          noWarnings: true,
-          noCheckCertificates: true,
-          preferFreeFormats: true,
-          userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          referer: url,
-          noPlaylist: true,
-          addHeader: [
-            'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-            'Accept-Language:en-US,en;q=0.9',
-          ]
+        console.log(`Attempting yt-dlp analysis for: ${url}`);
+        
+        const metadata = await new Promise((resolve, reject) => {
+          const args = [
+            '--dump-json',
+            '--no-warnings',
+            '--no-check-certificates',
+            '--prefer-free-formats',
+            '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            '--referer', url,
+            '--no-playlist',
+            url
+          ];
+          
+          const child = spawn('yt-dlp', args);
+          let stdout = '';
+          let stderr = '';
+          
+          child.stdout.on('data', (data) => stdout += data.toString());
+          child.stderr.on('data', (data) => stderr += data.toString());
+          
+          const timeout = setTimeout(() => {
+            child.kill();
+            reject(new Error('yt-dlp timed out after 45s'));
+          }, 45000);
+          
+          child.on('close', (code) => {
+            clearTimeout(timeout);
+            if (code === 0) {
+              try {
+                resolve(JSON.parse(stdout));
+              } catch (e) {
+                reject(new Error('Failed to parse yt-dlp output'));
+              }
+            } else {
+              reject(new Error(`yt-dlp exited with code ${code}: ${stderr}`));
+            }
+          });
         });
-
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Analysis timed out')), 45000)
-        );
-
-        const metadata = await Promise.race([ytdlPromise, timeoutPromise]);
 
         if (metadata) {
           type = metadata.vcodec !== 'none' ? 'video' : (metadata.acodec !== 'none' ? 'audio' : 'unknown');
           filename = metadata.title || filename;
           ext = metadata.ext || ext;
           previewUrl = metadata.url || url;
+          console.log(`yt-dlp success: ${type} - ${filename}`);
         }
       } catch (ytdlErr) {
-        console.log('yt-dlp analysis failed or timed out:', ytdlErr.message);
+        console.error('yt-dlp analysis failed:', ytdlErr.message);
         
-        // ─── Manual Fallback for xHamster Mirrors ─────────────────────────────
+        // ─── Manual Fallback for xHamster Mirrors (Last Resort) ─────────────
         if (url.includes('xhhouse') || url.includes('xhamster')) {
           try {
             const htmlRes = await axios.get(url, {
@@ -114,12 +135,12 @@ router.post('/analyze', async (req, res) => {
 
             const trailerMatch = htmlRes.data.match(/"trailerURL":"(.*?)"/);
             if (trailerMatch) {
-              previewUrl = trailerMatch[1].replace(/\\/g, ''); // Fallback to trailer for preview
+              previewUrl = trailerMatch[1].replace(/\\/g, '');
               type = 'video';
               ext = 'mp4';
             }
           } catch (e) {
-            console.log('Manual fallback failed:', e.message);
+            console.error('Manual fallback failed:', e.message);
           }
         }
       }
