@@ -7,7 +7,7 @@ const os = require('os');
 const mediaRoutes = require('./routes/media');
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 8080;
 
 // Request logging
 app.use((req, res, next) => {
@@ -50,7 +50,7 @@ if (fs.existsSync(frontendBuild)) {
   });
 }
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Smart Media Processor server running on port ${PORT}`);
   console.log(`📁 Temp directory: ${TEMP_DIR}`);
 });
